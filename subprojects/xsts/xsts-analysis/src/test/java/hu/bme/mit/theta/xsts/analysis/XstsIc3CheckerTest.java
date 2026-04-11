@@ -18,6 +18,7 @@ package hu.bme.mit.theta.xsts.analysis;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import hu.bme.mit.theta.analysis.algorithm.SafetyResult;
+import hu.bme.mit.theta.analysis.algorithm.bounded.pipeline.passes.CoinOfInfluenceMEPass;
 import hu.bme.mit.theta.analysis.algorithm.ic3.Ic3Checker;
 import hu.bme.mit.theta.common.logging.ConsoleLogger;
 import hu.bme.mit.theta.common.logging.Logger;
@@ -30,6 +31,8 @@ import java.io.InputStream;
 import java.io.SequenceInputStream;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.List;
+
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 
@@ -267,7 +270,11 @@ public class XstsIc3CheckerTest {
                                         true,
                                         true,
                                         true,
-                                        logger));
+                                        logger),
+                        List.of(new CoinOfInfluenceMEPass()),
+                        List.of(),
+                        logger
+                    );
         final SafetyResult<?, ?> status = checker.check(null);
 
         if (safe) {
