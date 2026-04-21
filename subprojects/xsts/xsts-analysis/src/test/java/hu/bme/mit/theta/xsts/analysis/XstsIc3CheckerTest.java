@@ -271,7 +271,7 @@ public class XstsIc3CheckerTest {
                                         true,
                                         true,
                                         logger),
-                        List.of(new CoinOfInfluenceMEPass()),
+                        List.of(new CoinOfInfluenceMEPass(logger)),
                         List.of(),
                         logger
                     );

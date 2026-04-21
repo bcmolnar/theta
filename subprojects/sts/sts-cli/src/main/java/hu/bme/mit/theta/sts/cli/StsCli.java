@@ -29,6 +29,7 @@ import hu.bme.mit.theta.analysis.algorithm.arg.ARG;
 import hu.bme.mit.theta.analysis.algorithm.bounded.BoundedCheckerBuilderKt;
 import hu.bme.mit.theta.analysis.algorithm.bounded.MonolithicExpr;
 import hu.bme.mit.theta.analysis.algorithm.bounded.pipeline.MonolithicExprPass;
+import hu.bme.mit.theta.analysis.algorithm.bounded.pipeline.passes.CoinOfInfluenceMEPass;
 import hu.bme.mit.theta.analysis.algorithm.bounded.pipeline.passes.L2SMEPass;
 import hu.bme.mit.theta.analysis.algorithm.bounded.pipeline.passes.PredicateAbstractionMEPass;
 import hu.bme.mit.theta.analysis.algorithm.bounded.pipeline.passes.ReverseMEPass;
@@ -298,6 +299,9 @@ public class StsCli {
     @Parameter(names = "--version", description = "Display version", help = true)
     boolean versionInfo = false;
 
+    @Parameter(names = "--coi", description = "Cone of Influence", help = true)
+    boolean coi = false;
+
     private Logger logger;
 
     public StsCli(final String[] args) {
@@ -353,6 +357,11 @@ public class StsCli {
                                     ExprTraceCheckerFactoriesKt.createSeqItpCheckerFactory(
                                             solverFactory)));
                 }
+                if(coi){
+                    passes.add(
+                        new CoinOfInfluenceMEPass<>(logger)
+                    );
+                }
                 if (reversed) {
                     passes.add(new ReverseMEPass<>());
                 }
@@ -367,6 +376,7 @@ public class StsCli {
                                                         .apply(monolithicExpr),
                                         passes);
                 status = formalismChecker.check(null);
+
             }
             sw.stop();
             printResult(status, sts, sw.elapsed(TimeUnit.MILLISECONDS));
