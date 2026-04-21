@@ -77,9 +77,9 @@ class CoinOfInfluenceMEPass<Pr : InvariantProof>(val logger: Logger) : Direction
     //removeOpsFromExpr(monolithicExpr.transExpr, can_remove)
     //removeOpsFromExpr(monolithicExpr.propExpr, can_remove)
 
-    logger.writeln(Logger.Level.RESULT, "COI Pass: Removed ${can_remove.size}")
-    logger.writeln(Logger.Level.RESULT, "COI Pass: All $startingvars")
-    logger.writeln(Logger.Level.RESULT, "COI Pass: ExprRem $removed")
+    logger.writeln(Logger.Level.RESULT, "COI Pass Removed:${can_remove.size}")
+    logger.writeln(Logger.Level.RESULT, "COI Pass All:$startingvars")
+    logger.writeln(Logger.Level.RESULT, "COI Pass ExprRem:$removed")
 
     val forret = monolithicExpr.let { (initExpr, transExpr, propExpr, transOffsetIndex, vars, ctrlVars, events) ->
       MonolithicExpr(
