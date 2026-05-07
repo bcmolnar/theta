@@ -17,14 +17,11 @@
 package hu.bme.mit.theta.analysis.algorithm.bounded.pipeline.passes
 
 import com.google.common.base.Stopwatch
-import hu.bme.mit.theta.analysis.Trace
 import hu.bme.mit.theta.analysis.algorithm.InvariantProof
-import hu.bme.mit.theta.analysis.algorithm.SafetyResult
 import hu.bme.mit.theta.analysis.algorithm.bounded.MonolithicExpr
 import hu.bme.mit.theta.analysis.algorithm.bounded.action
 import hu.bme.mit.theta.analysis.algorithm.bounded.pipeline.DirectionalMonolithicExprPass
 import hu.bme.mit.theta.analysis.algorithm.bounded.pipeline.MonolithicExprPassResult
-import hu.bme.mit.theta.analysis.expl.ExplState
 import hu.bme.mit.theta.analysis.expr.ExprAction
 import hu.bme.mit.theta.common.logging.Logger
 import hu.bme.mit.theta.core.decl.VarDecl
@@ -38,7 +35,6 @@ import hu.bme.mit.theta.core.type.anytype.IteExpr
 import hu.bme.mit.theta.core.type.anytype.PrimeExpr
 import hu.bme.mit.theta.core.type.anytype.RefExpr
 import hu.bme.mit.theta.core.type.booltype.AndExpr
-import hu.bme.mit.theta.core.type.booltype.BoolLitExpr
 import hu.bme.mit.theta.core.type.booltype.BoolType
 import hu.bme.mit.theta.core.type.booltype.NotExpr
 import hu.bme.mit.theta.core.type.booltype.OrExpr
@@ -47,24 +43,28 @@ import java.util.concurrent.TimeUnit
 
 class CoinOfInfluenceMEPass<Pr : InvariantProof>(val logger: Logger) : DirectionalMonolithicExprPass<Pr> {
 
-  //data class CoinOfInfluence(val props: Expr<BoolType>, val )
   lateinit var action: ExprAction
 
-  var all_vars = 0
+  var removedExpr = 0
 
   override fun forward(monolithicExpr: MonolithicExpr): MonolithicExprPassResult<Pr> {
-    //action = monolithicExpr.action()
-    return MonolithicExprPassResult(monolithicExpr)
+    action = monolithicExpr.action()
+
+    //CALC stat variables
+    fun countExprs(expr: Expr<*>): Int {
+      var count = 1
+      expr.ops.forEach { it -> count += countExprs(it) }
+      return count
+    }
+    val all_vars = monolithicExpr.vars.size
+    val all_expr = countExprs(monolithicExpr.transExpr) + countExprs(monolithicExpr.initExpr)
+
+    //START COI
     val stopwatch = Stopwatch.createStarted()
+    logger.writeln(Logger.Level.RESULT, "Starting Coin of Influence Pass")
 
-    logger.writeln(Logger.Level.RESULT, "Start COI:${stopwatch.elapsed(TimeUnit.MILLISECONDS)}")
-
-    all_vars = monolithicExpr.vars.size
-
-    //Add Vars for collecting dependencies
+    //VARS from Props and invariants are collected for building COI
     val coi_vars = ExprUtils.getVars(monolithicExpr.propExpr)
-
-    //Add invariants
     val invariants = mutableListOf<VarDecl<*>>()
     monolithicExpr.transExpr.ops.map { op ->
       if (op is PrimeExpr<*>) {
@@ -73,179 +73,92 @@ class CoinOfInfluenceMEPass<Pr : InvariantProof>(val logger: Logger) : Direction
     }
     coi_vars.addAll(invariants)
 
-    //Init Dependency graphs
+    //Init Dependency graph
     val dependecy_graphs = Graph()
     coi_vars.forEach {
       dependecy_graphs.addNode(it)
     }
 
-    //logger.writeln(Logger.Level.RESULT, "Start collectDependency Time:${stopwatch.elapsed(TimeUnit.MILLISECONDS)}")
-    //Build Dependency graphs
+    //BUILD initial graph and find dependencies
+    logger.writeln(Logger.Level.RESULT, "Start Collecting Dependencies - t:${stopwatch.elapsed(TimeUnit.MILLISECONDS)}")
+    val noIteMonoTrans = ExprUtils.eliminateIte(monolithicExpr.transExpr)
+    collectDependency(noIteMonoTrans, dependecy_graphs)
 
-    collectDependencyNegyedhogy(monolithicExpr.transExpr, coi_vars as HashSet<VarDecl<*>?>, dependecy_graphs)
-
-    val keepthem = hashSetOf<VarDecl<*>>()
-
-    for (v in coi_vars) {
-      keepthem.addAll(dependecy_graphs.getDependenciesMain(v!!))
-    }
-
-    var can_remove = listOf<VarDecl<*>>()
-    monolithicExpr.vars.map { it ->
-      if (!keepthem.contains(it)) {
-        can_remove += it
+    val keepthem = dependecy_graphs.getValsInGraph()
+    val can_remove = mutableListOf<VarDecl<*>>()
+    if(keepthem.size != all_vars){
+      monolithicExpr.vars.map { it ->
+        if (!keepthem.contains(it)) {
+          can_remove += it
+        }
       }
-    }
-
-    logger.writeln(Logger.Level.RESULT, "----------------")
-    logger.writeln(Logger.Level.RESULT, "COI Pass Removed: ${can_remove.size}")
-    logger.writeln(Logger.Level.RESULT, "COI Pass All: $all_vars")
-    logger.writeln(Logger.Level.RESULT, "COI Pass ExprRem: $removedExprs")
-    
-    if(can_remove.isNotEmpty()) {
-      val forret = MonolithicExpr(
-        initExpr = removeRecursiveMain(monolithicExpr.initExpr, can_remove),
-        transExpr = removeRecursiveMain(monolithicExpr.transExpr, can_remove),
-        propExpr = removeRecursiveMain(monolithicExpr.propExpr, can_remove),
-        transOffsetIndex = monolithicExpr.transOffsetIndex,
-        vars = monolithicExpr.vars.filter { it !in can_remove },
-        ctrlVars = monolithicExpr.ctrlVars,
-        events = monolithicExpr.events,
-      )
-      logger.writeln(Logger.Level.RESULT, "Finish COI Pass Time:${stopwatch.elapsed(TimeUnit.MILLISECONDS)}")
-
-      return MonolithicExprPassResult(forret)
 
     }
-    logger.writeln(Logger.Level.RESULT, "COI No Vars Removed")
-    return MonolithicExprPassResult(monolithicExpr)
+
+    if(can_remove.isEmpty()) {
+      finalLog(0, all_vars, removedExpr, all_expr,stopwatch)
+      return MonolithicExprPassResult(monolithicExpr)
+    }
+
+    logger.writeln(Logger.Level.RESULT, "Removing Vars Outside Cone of Influence - t:${stopwatch.elapsed(TimeUnit.MILLISECONDS)}")
+
+    //REMOVE vars outside of the cone of influence
+    val forret = MonolithicExpr(
+      initExpr = removeExprsMain(monolithicExpr.initExpr, can_remove),
+      transExpr = removeExprsMain(monolithicExpr.transExpr, can_remove),
+      propExpr = removeExprsMain(monolithicExpr.propExpr, can_remove),
+      transOffsetIndex = monolithicExpr.transOffsetIndex,
+      vars = monolithicExpr.vars.filter { it !in can_remove },
+      ctrlVars = monolithicExpr.ctrlVars,
+      events = monolithicExpr.events,
+    )
+    finalLog(can_remove.size, all_vars, removedExpr,all_expr,stopwatch)
+
+    return MonolithicExprPassResult(forret)
   }
 
-  fun collectDependencyHarmadhogy(expr: Expr<*>, coi_vars: HashSet<VarDecl<*>?>, graph: Graph, deps: HashSet<VarDecl<*>?> = hashSetOf()) {
-    if (expr.ops.isEmpty()) {
-      if (expr is RefExpr) {
-        val vars: MutableSet<VarDecl<*>?> = java.util.HashSet<VarDecl<*>?>()
-        ExprUtils.collectVars(expr, vars)
-        deps.addAll(vars)
-      }
-      return
+  fun finalLog(var_removed: Int, all_vars: Int, removed_exprs: Int, all_expr: Int, sw: Stopwatch){
+    logger.writeln(Logger.Level.RESULT, "Finished COI - t:${sw.elapsed(TimeUnit.MILLISECONDS)}")
+    logger.writeln(Logger.Level.RESULT, "COI Pass - Removed Vars: $var_removed")
+    logger.writeln(Logger.Level.RESULT, "COI Pass - All Vars: $all_vars")
+    logger.writeln(Logger.Level.RESULT, "COI Pass - Removed Expr: $removed_exprs")
+    logger.writeln(Logger.Level.RESULT, "COI Pass - All Expr: $all_expr")
+    logger.writeln(Logger.Level.RESULT, "----------------")
+
+  }
+
+  fun collectDependency(expr: Expr<*>, graph: Graph, deps: HashSet<VarDecl<*>> = hashSetOf()) {
+
+    fun getNotInEqVars(expr: Expr<*>, collectTo: HashSet<VarDecl<*>>){
+      expr.ops.forEach { it -> if(it !is EqExpr<*>) getNotInEqVars(it, collectTo)}
+      expr.ops.forEach { it -> if(it is RefExpr<*>) collectTo.addAll(ExprUtils.getVars(it))}
     }
 
-    for (it in expr.ops) {
-      if (it !is EqExpr<*>) {
-        collectDependencyHarmadhogy(it, coi_vars, graph, deps)
-      }
-    }
+    if(expr is OrExpr) { expr.ops.forEach { it -> getNotInEqVars(it, deps) }}
+    if(expr is AndExpr) deps.removeAll { true }
 
-    // Végigmegyünk az összes ops-on és az EqExpr típusoknál bővítjük a gráfot.
-    // Ha expr OrExpr akkor az itteni EqExpr-re nem vonatkoznak a dependency-k:
-    // Az EqExpr-t csak akkor adjuk hozzá, ha az expr AndExpr. ??? Ez így van?
-    for (it in expr.ops) {
-      if (it is EqExpr<*>) {
+    expr.ops.forEach { it ->
+      if(it is EqExpr<*>) {
         val left = ExprUtils.getVars(it.leftOp)
         val right = ExprUtils.getVars(it.rightOp)
-
-        left.forEach { l -> //csak egy Ref lesz/lehet ref-ben de nem indexelek
-          graph.addNode(l!!)
+        left.forEach { l ->
+          graph.addNode(l)
           right.forEach { r ->
-            graph.addToNode(l, r!!)
-          }
-          if (expr is AndExpr) {
-            deps.forEach { d ->
-              graph.addToNode(l, d!!)
-            }
-          }
-
-          //For coi_vars list
-          if(l in coi_vars){
-            right.forEach { r ->
-              coi_vars.add(r)
-            }
-            deps.forEach { d ->
-              coi_vars.add(d)
-            }
+            graph.addToNode(l, r)
           }
         }
-
-        deps.addAll(left)
       }
     }
+
+    expr.ops.forEach { it -> collectDependency(it, graph, deps)}
   }
 
-  fun collectDependencyNegyedhogy(expr: Expr<*>, coi_vars: HashSet<VarDecl<*>?>, graph: Graph, deps: HashSet<VarDecl<*>?> = hashSetOf()) {
-    expr.ops.forEach {
-      val all_prime_vars = HashSet<VarDecl<*>>()
-      val all_not_prime_vars = HashSet<VarDecl<*>>()
-      getAllPrimeVars(it, all_prime_vars)
-      getAllNotPrimeVars(it, all_not_prime_vars)
-      all_prime_vars.forEach { p ->
-        graph.addNode(p)
-        all_not_prime_vars.forEach { d ->
-          graph.addToNode(p, d)
-        }
-      }
-    }
-  }
-
-  fun getAllPrimeVars(expr: Expr<*>, collectTo: HashSet<VarDecl<*>>){
-    if(expr.ops.isEmpty()) return
-    for (it in expr.ops) {
-      if (it is PrimeExpr<*>) {
-        collectTo.addAll(ExprUtils.getVars(it))
-      } else {
-        getAllPrimeVars(it, collectTo)
-      }
-    }
-  }
-
-  fun getAllNotPrimeVars(expr: Expr<*>, collectTo: HashSet<VarDecl<*>>){
-    if(expr is PrimeExpr<*>) return
-    if(expr is RefExpr) collectTo.addAll(ExprUtils.getVars(expr))
-    if(expr.ops.isEmpty()) return
-    for (it in expr.ops) {
-      getAllNotPrimeVars(it, collectTo)
-    }
-  }
-
-  fun collectDependency(expr: Expr<*>, coi_vars: HashSet<VarDecl<*>?>, graph: Graph) {
-      var coi_discovered = coi_vars.size
-      var coi_last_discovered = 0
-
-      while (coi_discovered != coi_last_discovered) {
-        // ExprUtils.eliminateIte(monolithicExpr.transExpr)
-        // ExprUtils.collectDependency(monolithicExpr.transExpr, coi_vars as HashSet<VarDecl<*>?>?)
-
-        if (expr is EqExpr<*>) {
-          if (expr.getLeftOp() is PrimeExpr<*>) {
-            val prime_vars: MutableSet<VarDecl<*>?> = java.util.HashSet<VarDecl<*>?>()
-            ExprUtils.collectVars(expr.leftOp, prime_vars)
-            for (v in prime_vars) {
-              if (coi_vars.contains(v)) {
-                val new_vars: MutableSet<VarDecl<*>?> = java.util.HashSet<VarDecl<*>?>()
-                ExprUtils.collectVars(expr.rightOp, new_vars)
-                coi_vars.addAll(new_vars)
-                new_vars.forEach {
-                  graph.addToNode(v!!, it!!)
-                }
-              }
-            }
-          }
-        } else {
-          expr.getOps().forEach { op: Expr<*>? -> collectDependency(op!!, coi_vars, graph) }
-        }
-
-        coi_discovered = coi_last_discovered
-        coi_last_discovered = coi_vars.size
-      }
-  }
-
-  var removedExprs = 0
-  fun removeRecursiveMain(expr: Expr<BoolType>, toRemove: List<VarDecl<*>>): Expr<BoolType> {
-    val newexpr = removeRecursive(expr, toRemove)
+  fun removeExprsMain(expr: Expr<BoolType>, toRemove: List<VarDecl<*>>): Expr<BoolType> {
+    val newexpr = removeExprs(expr, toRemove)
     return newexpr as Expr<BoolType> 
   }
 
-  fun removeRecursive(expr: Expr<*>, toRemove: List<VarDecl<*>>): Expr<*>? {
+  fun removeExprs(expr: Expr<*>, toRemove: List<VarDecl<*>>): Expr<*>? {
     if (expr is RefExpr && expr.decl in toRemove) {
       return null
     } else if(expr.ops.isEmpty()) {
@@ -254,7 +167,7 @@ class CoinOfInfluenceMEPass<Pr : InvariantProof>(val logger: Logger) : Direction
 
     val keepers = ArrayList<Expr<*>>()
     for (op in expr.ops) {
-      val cleaned = removeRecursive(op, toRemove)
+      val cleaned = removeExprs(op, toRemove)
       if (cleaned == null) {
         if (removeWithChild(expr)) {
           return null
@@ -270,7 +183,7 @@ class CoinOfInfluenceMEPass<Pr : InvariantProof>(val logger: Logger) : Direction
     }
 
     val delta = expr.ops.size-keepers.size
-    removedExprs += delta
+    removedExpr += delta
     return expr.withOps(keepers)
   }
 
@@ -287,8 +200,6 @@ class CoinOfInfluenceMEPass<Pr : InvariantProof>(val logger: Logger) : Direction
     return false
   }
 }
-
-
 
 
 class Node(
@@ -315,41 +226,15 @@ class Graph {
     return nodeMap.containsKey(decl)
   }
 
+  fun getValsInGraph(): Set<VarDecl<*>> {
+    return nodeMap.keys
+  }
   fun size(): Int { return nodeMap.size}
 
   fun connect(a: VarDecl<*>, b: VarDecl<*>) {
     val nodeA = addNode(a)
     val nodeB = addNode(b)
     nodeA.connect(nodeB)
-  }
-
-  fun findVarDecl(predicate: (VarDecl<*>) -> Boolean): VarDecl<*>? {
-    val visited = mutableSetOf<Node>()
-    val queue: ArrayDeque<Node> = ArrayDeque()
-
-    for (start in nodeMap.values) {
-      if (start in visited) continue
-
-      queue.add(start)
-      visited.add(start)
-
-      while (queue.isNotEmpty()) {
-        val current = queue.removeFirst()
-
-        if (predicate(current.data)) {
-          return current.data
-        }
-
-        for (neighbor in current.neighbors) {
-          if (neighbor !in visited) {
-            visited.add(neighbor)
-            queue.add(neighbor)
-          }
-        }
-      }
-    }
-
-    return null
   }
 
   fun addToNode(
@@ -372,12 +257,22 @@ class Graph {
 
   fun getDependencies(
     target: Node,
-    deps: HashSet<VarDecl<*>> = HashSet<VarDecl<*>>(),
-  ){
-    //Elkerülni a köröket
-    if (!deps.add(target.data)) return
-    target.neighbors.forEach {
-      getDependencies(it,deps)
+    deps: HashSet<VarDecl<*>>,
+  ) {
+    val stack = ArrayDeque<Node>()
+
+    if (deps.add(target.data)) {
+      stack.add(target)
+    }
+
+    while (stack.isNotEmpty()) {
+      val current = stack.removeLast()
+
+      current.neighbors.forEach { neighbor ->
+        if (deps.add(neighbor.data)) {
+          stack.add(neighbor)
+        }
+      }
     }
   }
 }
