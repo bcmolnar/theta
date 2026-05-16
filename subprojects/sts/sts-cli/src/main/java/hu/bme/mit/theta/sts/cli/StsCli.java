@@ -302,6 +302,17 @@ public class StsCli {
     @Parameter(names = "--coi", description = "Cone of Influence", help = true)
     boolean coi = false;
 
+    @Parameter(names = "--cnf", description = "Cone of Influence - Using CNF for dependecy collection", help = true)
+    boolean coi_cnf = false;
+
+    @Parameter(names = "--prime-only", description = "Cone of Influence - Using Primes only", help = true)
+    boolean coi_po = false;
+
+    @Parameter(names = "--list-based", description = "Cone of Influence - Collecting In a List, not a graph", help = true)
+    boolean coi_list = false;
+    @Parameter(names = "--naive-or", description = "Cone of Influence - Collecting all vars in OrExprs along the tree", help = true)
+    boolean coi_naiveor = false;
+
     private Logger logger;
 
     public StsCli(final String[] args) {
@@ -359,7 +370,7 @@ public class StsCli {
                 }
                 if(coi){
                     passes.add(
-                        new CoinOfInfluenceMEPass<>(logger)
+                        new CoinOfInfluenceMEPass<>(coi_cnf, coi_po, coi_naiveor, coi_list, logger)
                     );
                 }
                 if (reversed) {

@@ -53,7 +53,10 @@ constructor(
 
   companion object {
     fun defaultValidators(): List<MonolithicExprPassValidator<in InvariantProof>> =
-      listOf(PrimeMEPassValidator, VariableConsistencyMEPassValidator)
+      //listOf(PrimeMEPassValidator, VariableConsistencyMEPassValidator)
+      //listOf(PrimeMEPassValidator)
+      listOf(VariableConsistencyMEPassValidator)
+
   }
 
   private val steps: MutableList<PipelineStep<Pr>> = mutableListOf()
@@ -97,7 +100,7 @@ constructor(
       // call the current pass than validate and log its result
       result = passes[componentIndex].process(result, status)
       steps.add(Pair(componentIndex, result))
-      //validators.forEach { it.checkStepResult(steps) }
+      validators.forEach { it.checkStepResult(steps) }
 
       if (result.direction != direction) {
         // current pass indicates a direction change
