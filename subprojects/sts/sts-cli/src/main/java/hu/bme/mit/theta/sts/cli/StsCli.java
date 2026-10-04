@@ -29,10 +29,7 @@ import hu.bme.mit.theta.analysis.algorithm.arg.ARG;
 import hu.bme.mit.theta.analysis.algorithm.bounded.BoundedCheckerBuilderKt;
 import hu.bme.mit.theta.analysis.algorithm.bounded.MonolithicExpr;
 import hu.bme.mit.theta.analysis.algorithm.bounded.pipeline.MonolithicExprPass;
-import hu.bme.mit.theta.analysis.algorithm.bounded.pipeline.passes.CoinOfInfluenceMEPass;
-import hu.bme.mit.theta.analysis.algorithm.bounded.pipeline.passes.L2SMEPass;
-import hu.bme.mit.theta.analysis.algorithm.bounded.pipeline.passes.PredicateAbstractionMEPass;
-import hu.bme.mit.theta.analysis.algorithm.bounded.pipeline.passes.ReverseMEPass;
+import hu.bme.mit.theta.analysis.algorithm.bounded.pipeline.passes.*;
 import hu.bme.mit.theta.analysis.algorithm.cegar.CegarStatistics;
 import hu.bme.mit.theta.analysis.algorithm.ic3.Ic3Checker;
 import hu.bme.mit.theta.analysis.algorithm.mdd.MddChecker;
@@ -77,6 +74,7 @@ import java.io.*;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.stream.Stream;
@@ -299,19 +297,9 @@ public class StsCli {
     @Parameter(names = "--version", description = "Display version", help = true)
     boolean versionInfo = false;
 
-    @Parameter(names = "--coi", description = "Cone of Influence", help = true)
-    boolean coi = false;
-
-    @Parameter(names = "--cnf", description = "Cone of Influence - Using CNF for dependecy collection", help = true)
-    boolean coi_cnf = false;
-
-    @Parameter(names = "--prime-only", description = "Cone of Influence - Using Primes only", help = true)
-    boolean coi_po = false;
-
-    @Parameter(names = "--list-based", description = "Cone of Influence - Collecting In a List, not a graph", help = true)
-    boolean coi_list = false;
-    @Parameter(names = "--naive-or", description = "Cone of Influence - Collecting all vars in OrExprs along the tree", help = true)
-    boolean coi_naiveor = false;
+    enum COI{ COI, CNF, FAST, RETCNF }
+    @Parameter(names = "--coi", variableArity = true, description = "Cone of Influence - Parameters", help = true)
+    List<COI> coi_params = new ArrayList<>();
 
     private Logger logger;
 
@@ -368,11 +356,11 @@ public class StsCli {
                                     ExprTraceCheckerFactoriesKt.createSeqItpCheckerFactory(
                                             solverFactory)));
                 }
-                if(coi){
-                    passes.add(
-                        new CoinOfInfluenceMEPass<>(coi_cnf, coi_po, coi_naiveor, coi_list, logger)
-                    );
+                if(!coi_params.isEmpty()){
+                    passes.add(new CoinOfInfluenceMEPass<>(coi_params.contains(COI.CNF), coi_params.contains(COI.FAST), coi_params.contains(COI.RETCNF), logger));
+
                 }
+
                 if (reversed) {
                     passes.add(new ReverseMEPass<>());
                 }
