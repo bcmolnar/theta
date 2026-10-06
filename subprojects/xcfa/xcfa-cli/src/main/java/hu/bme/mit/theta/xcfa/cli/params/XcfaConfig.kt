@@ -508,6 +508,12 @@ data class BoundedConfig(
   var cegar: Boolean = false,
   @Parameter(names = ["--initprec"], description = "Wrap the check in a predicate-based CEGAR loop")
   var initPrec: InitPrec = InitPrec.EMPTY,
+
+  @Parameter(names = ["--mecoi"], description = "Cone of Influence on the Monolithic expression")
+  var mecoi: Boolean = false,
+  @Parameter(names = ["--cfacoi"], description = "Cone of Influence on the XCFA expression")
+  var cfacoi: Boolean = false,
+
   val bmcConfig: BMCConfig = BMCConfig(),
   val indConfig: InductionConfig = InductionConfig(),
   val itpConfig: InterpolationConfig = InterpolationConfig(),

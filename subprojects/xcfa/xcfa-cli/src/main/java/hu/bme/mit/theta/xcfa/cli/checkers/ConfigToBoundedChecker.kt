@@ -20,6 +20,7 @@ import hu.bme.mit.theta.analysis.algorithm.SafetyChecker
 import hu.bme.mit.theta.analysis.algorithm.bounded.BoundedChecker
 import hu.bme.mit.theta.analysis.algorithm.bounded.MonolithicExpr
 import hu.bme.mit.theta.analysis.algorithm.bounded.pipeline.MonolithicExprPass
+import hu.bme.mit.theta.analysis.algorithm.bounded.pipeline.passes.ConeOfInfluenceMEPass
 import hu.bme.mit.theta.analysis.algorithm.bounded.pipeline.passes.L2SMEPass
 import hu.bme.mit.theta.analysis.algorithm.bounded.pipeline.passes.PredicateAbstractionMEPass
 import hu.bme.mit.theta.analysis.algorithm.bounded.pipeline.passes.ReverseMEPass
@@ -82,6 +83,8 @@ fun getBoundedChecker(
     logger,
     boundedConfig.cegar,
     boundedConfig.reversed,
+    boundedConfig.mecoi,
+    boundedConfig.cfacoi,
     boundedConfig.bmcConfig.bmcSolver,
     boundedConfig.bmcConfig.validateBMCSolver,
   )
@@ -95,6 +98,8 @@ internal fun getPipelineChecker(
   logger: Logger,
   cegar: Boolean = false,
   reversed: Boolean = false,
+  mecoi: Boolean = false,
+  cfacoi: Boolean = false,
   cegarSolver: String = "Z3",
   cegarSolverValidate: Boolean = false,
 ): XcfaPipelineChecker<PredState> {
@@ -112,6 +117,7 @@ internal fun getPipelineChecker(
   if (reversed) {
     passes.add(ReverseMEPass())
   }
+  if(mecoi){passes.add(ConeOfInfluenceMEPass(logger))}
 
   return XcfaPipelineChecker(
     xcfa,

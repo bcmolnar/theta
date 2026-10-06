@@ -358,7 +358,7 @@ public class StsCli {
                                             solverFactory)));
                 }
                 if(!coi_params.isEmpty()){
-                    passes.add(new CoinOfInfluenceMEPass<>(coi_params.contains(COI.CNF), coi_params.contains(COI.FAST), coi_params.contains(COI.RETCNF), logger));
+                    passes.add(new ConeOfInfluenceMEPass<>(logger));
 
                 }
 

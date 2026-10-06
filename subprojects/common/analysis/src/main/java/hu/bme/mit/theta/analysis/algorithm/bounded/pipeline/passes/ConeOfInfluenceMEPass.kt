@@ -38,10 +38,14 @@ import hu.bme.mit.theta.core.type.booltype.OrExpr
 import hu.bme.mit.theta.core.utils.ExprUtils
 import java.util.concurrent.TimeUnit
 
-class CoinOfInfluenceMEPass<Pr : InvariantProof>(val cnf: Boolean, val coiFast: Boolean, val returncnf: Boolean, val logger: Logger) : DirectionalMonolithicExprPass<Pr> {
+class ConeOfInfluenceMEPass<Pr : InvariantProof>(val logger: Logger) : DirectionalMonolithicExprPass<Pr> {
 
   lateinit var action: ExprAction
   var removedExpr = 0
+
+  val cnf: Boolean = false;
+  val coiFast: Boolean = true;
+  val returncnf: Boolean = false
 
   override fun forward(monolithicExpr: MonolithicExpr): MonolithicExprPassResult<Pr> {
     action = monolithicExpr.action()
@@ -52,7 +56,7 @@ class CoinOfInfluenceMEPass<Pr : InvariantProof>(val cnf: Boolean, val coiFast: 
 
     //START COI
     val stopwatch = Stopwatch.createStarted()
-    logger.writeln(Logger.Level.RESULT, "Coin of Influence Pass")
+    logger.writeln(Logger.Level.RESULT, "Cone of Influence Pass")
     logger.writeln(Logger.Level.RESULT, "CNF: $cnf | Fast-CoI: $coiFast | RetCNF: $returncnf")
 
     //VARS from Props and invariants are collected for building COI

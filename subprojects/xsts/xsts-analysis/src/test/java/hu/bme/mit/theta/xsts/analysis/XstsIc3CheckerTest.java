@@ -18,7 +18,7 @@ package hu.bme.mit.theta.xsts.analysis;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import hu.bme.mit.theta.analysis.algorithm.SafetyResult;
-import hu.bme.mit.theta.analysis.algorithm.bounded.pipeline.passes.CoinOfInfluenceMEPass;
+import hu.bme.mit.theta.analysis.algorithm.bounded.pipeline.passes.ConeOfInfluenceMEPass;
 import hu.bme.mit.theta.analysis.algorithm.ic3.Ic3Checker;
 import hu.bme.mit.theta.common.logging.ConsoleLogger;
 import hu.bme.mit.theta.common.logging.Logger;
@@ -271,7 +271,7 @@ public class XstsIc3CheckerTest {
                                         true,
                                         true,
                                         logger),
-                        List.of(new CoinOfInfluenceMEPass(false, true, false, logger)),
+                        List.of(new ConeOfInfluenceMEPass(logger)),
                         List.of(),
                         logger
                     );

@@ -32,7 +32,8 @@ package hu.bme.mit.theta.sts.analysis;
  */
 
 import hu.bme.mit.theta.analysis.algorithm.bounded.pipeline.MonolithicExprPassResult;
-import hu.bme.mit.theta.analysis.algorithm.bounded.pipeline.passes.CoinOfInfluenceMEPass;
+import hu.bme.mit.theta.analysis.algorithm.bounded.pipeline.passes.ConeOfInfluenceMEPass;
+import hu.bme.mit.theta.analysis.algorithm.bounded.pipeline.passes.ConeOfInfluenceMEPass;
 import hu.bme.mit.theta.analysis.algorithm.ic3.Ic3Checker;
 import hu.bme.mit.theta.common.Utils;
 import hu.bme.mit.theta.common.logging.ConsoleLogger;
@@ -120,7 +121,7 @@ public class StsIc3TestCOITmp {
                             new MonolithicExprPassResult<>(
                                 hu.bme.mit.theta.analysis.algorithm.coi.MonolithicCOI.proc(
                                     Objects.requireNonNull(data.getExpressionResult()))),*/
-                            new CoinOfInfluenceMEPass<>(logger)
+                            new ConeOfInfluenceMEPass<>(logger)
                         ),
                         List.of(),
                         logger);
