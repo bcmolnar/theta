@@ -28,9 +28,7 @@ import hu.bme.mit.theta.analysis.algorithm.arg.ARG;
 import hu.bme.mit.theta.analysis.algorithm.bounded.BoundedCheckerBuilderKt;
 import hu.bme.mit.theta.analysis.algorithm.bounded.MonolithicExpr;
 import hu.bme.mit.theta.analysis.algorithm.bounded.pipeline.MonolithicExprPass;
-import hu.bme.mit.theta.analysis.algorithm.bounded.pipeline.passes.L2SMEPass;
-import hu.bme.mit.theta.analysis.algorithm.bounded.pipeline.passes.PredicateAbstractionMEPass;
-import hu.bme.mit.theta.analysis.algorithm.bounded.pipeline.passes.ReverseMEPass;
+import hu.bme.mit.theta.analysis.algorithm.bounded.pipeline.passes.*;
 import hu.bme.mit.theta.analysis.algorithm.cegar.CegarStatistics;
 import hu.bme.mit.theta.analysis.algorithm.ic3.Ic3Checker;
 import hu.bme.mit.theta.analysis.algorithm.mdd.MddChecker;
@@ -77,6 +75,8 @@ import java.io.*;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.stream.Stream;
 
@@ -298,6 +298,10 @@ public class StsCli {
     @Parameter(names = "--version", description = "Display version", help = true)
     boolean versionInfo = false;
 
+    enum COI{ COI, CNF, FAST, RETCNF }
+    @Parameter(names = "--coi", variableArity = true, description = "Cone of Influence - Parameters", help = true)
+    List<COI> coi_params = new ArrayList<>();
+
     private Logger logger;
 
     public StsCli(final String[] args) {
@@ -353,6 +357,11 @@ public class StsCli {
                                     ExprTraceCheckerFactoriesKt.createSeqItpCheckerFactory(
                                             solverFactory)));
                 }
+                if(!coi_params.isEmpty()){
+                    passes.add(new CoinOfInfluenceMEPass<>(coi_params.contains(COI.CNF), coi_params.contains(COI.FAST), coi_params.contains(COI.RETCNF), logger));
+
+                }
+
                 if (reversed) {
                     passes.add(new ReverseMEPass<>());
                 }
@@ -367,6 +376,7 @@ public class StsCli {
                                                         .apply(monolithicExpr),
                                         passes);
                 status = formalismChecker.check(null);
+
             }
             sw.stop();
             printResult(status, sts, sw.elapsedMillis());

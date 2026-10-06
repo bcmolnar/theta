@@ -53,7 +53,10 @@ constructor(
 
   companion object {
     fun defaultValidators(): List<MonolithicExprPassValidator<in InvariantProof>> =
-      listOf(PrimeMEPassValidator, VariableConsistencyMEPassValidator)
+      //listOf(PrimeMEPassValidator, VariableConsistencyMEPassValidator)
+      //listOf(PrimeMEPassValidator)
+      listOf(VariableConsistencyMEPassValidator)
+
   }
 
   private val steps: MutableList<PipelineStep<Pr>> = mutableListOf()
