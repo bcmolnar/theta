@@ -127,6 +127,10 @@ data class FrontendConfig<T : SpecFrontendConfig>(
   var lbeLevel: LbePass.LbeLevel = LbePass.LbeLevel.LBE_SEQ,
   @Parameter(names = ["--static-coi"], description = "Enable static cone-of-influence")
   var enableStaticCoi: Boolean = false,
+
+  @Parameter(names = ["--monolithic-coi"], description = "Enable monolithic cone-of-influence")
+  var enableMonolithicCoi: Boolean = false,
+
   @Parameter(
     names = ["--unroll"],
     description =
