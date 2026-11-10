@@ -1,5 +1,5 @@
 /*
- *  Copyright 2025 Budapest University of Technology and Economics
+ *  Copyright 2026 Budapest University of Technology and Economics
  *
  *  Licensed under the Apache License, Version 2.0 (the "License");
  *  you may not use this file except in compliance with the License.
@@ -26,6 +26,7 @@ public final class Z3SolverManager extends SolverManager {
 
     private static final String NAME = "Z3:new";
     private static final String NAME_DEPRECATED = "Z3:4.13";
+    private static final String NAME_PRESOLVE = "Z3:new-presolve";
 
     private boolean closed = false;
     private final Set<SolverBase> instantiatedSolvers = new HashSet<>();
@@ -38,13 +39,16 @@ public final class Z3SolverManager extends SolverManager {
 
     @Override
     public boolean managesSolver(final String name) {
-        return NAME.equals(name) || NAME_DEPRECATED.equals(name);
+        return NAME.equals(name) || NAME_DEPRECATED.equals(name) || NAME_PRESOLVE.equals(name);
     }
 
     @Override
     public SolverFactory getSolverFactory(final String name) {
         checkArgument(managesSolver(name));
-        return new ManagedFactory(Z3SolverFactory.getInstance());
+        return new ManagedFactory(
+                NAME_PRESOLVE.equals(name)
+                        ? Z3SolverFactory.getPresolveInstance()
+                        : Z3SolverFactory.getInstance());
     }
 
     @Override
@@ -67,7 +71,9 @@ public final class Z3SolverManager extends SolverManager {
         public Solver createSolver() {
             checkState(!closed, "Solver manager was closed");
             final var solver = solverFactory.createSolver();
-            instantiatedSolvers.add(solver);
+            if (!adoptIntoSolverScope(solver)) {
+                instantiatedSolvers.add(solver);
+            }
             return solver;
         }
 
@@ -75,7 +81,9 @@ public final class Z3SolverManager extends SolverManager {
         public UCSolver createUCSolver() {
             checkState(!closed, "Solver manager was closed");
             final var solver = solverFactory.createUCSolver();
-            instantiatedSolvers.add(solver);
+            if (!adoptIntoSolverScope(solver)) {
+                instantiatedSolvers.add(solver);
+            }
             return solver;
         }
 
@@ -83,7 +91,9 @@ public final class Z3SolverManager extends SolverManager {
         public ItpSolver createItpSolver() {
             checkState(!closed, "Solver manager was closed");
             final var solver = solverFactory.createItpSolver();
-            instantiatedSolvers.add(solver);
+            if (!adoptIntoSolverScope(solver)) {
+                instantiatedSolvers.add(solver);
+            }
             return solver;
         }
 
@@ -91,7 +101,9 @@ public final class Z3SolverManager extends SolverManager {
         public HornSolver createHornSolver() {
             checkState(!closed, "Solver manager was closed");
             final var solver = solverFactory.createHornSolver();
-            instantiatedSolvers.add(solver);
+            if (!adoptIntoSolverScope(solver)) {
+                instantiatedSolvers.add(solver);
+            }
             return solver;
         }
     }
