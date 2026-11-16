@@ -29,8 +29,14 @@ import hu.bme.mit.theta.xcfa.model.XcfaProcedureBuilder
  * assignment or havoc kills a variable, every other label just adds what it reads or writes, and an
  * assignment to a local makes its operands live only if its target is. Globals are always live, as
  * other threads may read them.
+ *
+ * With [strong] false, every assignment makes its operands live: a check added by a later pass
+ * (overflow, memory safety) may read them even when the target is dead.
  */
-fun strongLiveVars(builder: XcfaProcedureBuilder): Map<XcfaLocation, Set<VarDecl<*>>> {
+fun strongLiveVars(
+  builder: XcfaProcedureBuilder,
+  strong: Boolean = true,
+): Map<XcfaLocation, Set<VarDecl<*>>> {
   val live = builder.getLocs().associateWith { mutableSetOf<VarDecl<*>>() }.toMutableMap()
   val locals = builder.getVars() + builder.getParams().map { it.first }
   builder
@@ -50,11 +56,15 @@ fun strongLiveVars(builder: XcfaProcedureBuilder): Map<XcfaLocation, Set<VarDecl
           is AssignStmt<*> ->
             when {
               stmt.varDecl !in locals -> l + ExprUtils.getVars(stmt.expr)
-              stmt.varDecl in l -> l - stmt.varDecl + ExprUtils.getVars(stmt.expr)
+              stmt.varDecl in l || !strong -> l - stmt.varDecl + ExprUtils.getVars(stmt.expr)
               else -> l
             }
           is HavocStmt<*> -> if (stmt.varDecl in locals) l - stmt.varDecl else l
-          else -> l + label.collectVarsWithAccessType().keys
+          else -> {
+            val (readVars, writtenVars) =
+              label.collectVarsWithAccessType().toList().partition { it.second == READ }
+            l + readVars.map { it.first }.toSet() - writtenVars.map { it.first }.toSet()
+          }
         }
     }
     val src = live.getOrPut(edge.source) { mutableSetOf() }

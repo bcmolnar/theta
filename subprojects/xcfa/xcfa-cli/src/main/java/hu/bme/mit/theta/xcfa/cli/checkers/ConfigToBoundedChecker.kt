@@ -39,6 +39,7 @@ import hu.bme.mit.theta.xcfa.analysis.XcfaState
 import hu.bme.mit.theta.xcfa.analysis.monolithic.XcfaPipelineChecker
 import hu.bme.mit.theta.xcfa.analysis.proof.LocationInvariants
 import hu.bme.mit.theta.xcfa.cli.params.BoundedConfig
+import hu.bme.mit.theta.xcfa.cli.params.InputType
 import hu.bme.mit.theta.xcfa.cli.params.XcfaConfig
 import hu.bme.mit.theta.xcfa.cli.utils.getSolver
 import hu.bme.mit.theta.xcfa.model.XCFA
@@ -84,6 +85,7 @@ fun getBoundedChecker(
     boundedConfig.reversed,
     boundedConfig.bmcConfig.bmcSolver,
     boundedConfig.bmcConfig.validateBMCSolver,
+    boundedConfig.blockEncoding,
   )
 }
 
@@ -97,6 +99,7 @@ internal fun getPipelineChecker(
   reversed: Boolean = false,
   cegarSolver: String = "Z3",
   cegarSolverValidate: Boolean = false,
+  blockEncoding: Boolean = false,
 ): XcfaPipelineChecker<PredState> {
   val passes = mutableListOf<MonolithicExprPass<PredState>>()
   if (config.inputConfig.property.verifiedProperty == ErrorDetection.TERMINATION) {
@@ -121,6 +124,8 @@ internal fun getPipelineChecker(
     passes,
     logger,
     config.outputConfig.acceptUnreliableSafe,
+    blockEncoding = blockEncoding,
+    quantifiedInvariants = config.frontendConfig.inputType == InputType.SVLIB,
   )
 }
 

@@ -22,6 +22,7 @@ import hu.bme.mit.theta.solver.UCSolver;
 import hu.bme.mit.theta.solver.UserPropagator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Stream;
 import org.sosy_lab.common.ShutdownManager;
 import org.sosy_lab.common.configuration.Configuration;
@@ -34,13 +35,14 @@ import org.sosy_lab.java_smt.api.InterpolatingProverEnvironment;
 import org.sosy_lab.java_smt.api.ProverEnvironment;
 import org.sosy_lab.java_smt.api.SolverContext;
 import org.sosy_lab.java_smt.api.SolverContext.ProverOptions;
+import org.sosy_lab.java_smt.solvers.yices2.PushPopYices2Prover;
 
 public final class JavaSMTSolverFactory implements SolverFactory {
     private final Solvers solver;
 
     private final Configuration config;
+    private final Configuration itpConfig;
     private final LogManager logger;
-    private final ShutdownManager shutdownManager;
 
     /**
      * Available options (mined from javasmt sources): Prefix: solver Options: * private boolean
@@ -82,9 +84,15 @@ public final class JavaSMTSolverFactory implements SolverFactory {
     private JavaSMTSolverFactory(Solvers solver, String[] args) {
         try {
             this.solver = solver;
-            config = Configuration.fromCmdLineArguments(args);
+            itpConfig = Configuration.fromCmdLineArguments(args);
+            // JavaSMT defaults Yices to MCSAT, the only backend that interpolates, but DPLL(T) is
+            // far faster on difference logic.
+            config =
+                    Configuration.builder()
+                            .copyFrom(itpConfig)
+                            .setOption("solver.yices2.solverType", "dpllt")
+                            .build();
             logger = BasicLogManager.create(config);
-            shutdownManager = ShutdownManager.create();
         } catch (InvalidConfigurationException e) {
             throw new JavaSMTSolverException(e);
         }
@@ -109,20 +117,26 @@ public final class JavaSMTSolverFactory implements SolverFactory {
     @Override
     public Solver createSolver() {
         try {
+            // one per context, so that a solver is interrupted alone
+            final ShutdownManager interrupter = ShutdownManager.create();
             final SolverContext context =
                     SolverContextFactory.createSolverContext(
-                            config, logger, shutdownManager.getNotifier(), solver);
+                            config, logger, interrupter.getNotifier(), solver);
             final JavaSMTSymbolTable symbolTable = new JavaSMTSymbolTable();
             final JavaSMTTransformationManager transformationManager =
                     new JavaSMTTransformationManager(symbolTable, context);
             final JavaSMTTermTransformer termTransformer =
                     new JavaSMTTermTransformer(symbolTable, context);
 
-            final ProverEnvironment prover =
-                    context.newProverEnvironment(ProverOptions.GENERATE_MODELS);
+            final ProverEnvironment prover = newProver(context, ProverOptions.GENERATE_MODELS);
 
             return new JavaSMTSolver(
-                    symbolTable, transformationManager, termTransformer, context, prover);
+                    symbolTable,
+                    transformationManager,
+                    termTransformer,
+                    context,
+                    prover,
+                    interrupter);
         } catch (InvalidConfigurationException e) {
             throw new JavaSMTSolverException(e);
         }
@@ -131,9 +145,11 @@ public final class JavaSMTSolverFactory implements SolverFactory {
     @Override
     public Solver createSolverWithPropagators(UserPropagator... propagators) {
         try {
+            // one per context, so that a solver is interrupted alone
+            final ShutdownManager interrupter = ShutdownManager.create();
             final SolverContext context =
                     SolverContextFactory.createSolverContext(
-                            config, logger, shutdownManager.getNotifier(), solver);
+                            config, logger, interrupter.getNotifier(), solver);
             final JavaSMTSymbolTable symbolTable = new JavaSMTSymbolTable();
             final JavaSMTTransformationManager transformationManager =
                     new JavaSMTTransformationManager(symbolTable, context);
@@ -154,7 +170,12 @@ public final class JavaSMTSolverFactory implements SolverFactory {
             }
 
             return new JavaSMTSolver(
-                    symbolTable, transformationManager, termTransformer, context, prover);
+                    symbolTable,
+                    transformationManager,
+                    termTransformer,
+                    context,
+                    prover,
+                    interrupter);
         } catch (InvalidConfigurationException e) {
             throw new JavaSMTSolverException(e);
         }
@@ -163,9 +184,11 @@ public final class JavaSMTSolverFactory implements SolverFactory {
     @Override
     public UCSolver createUCSolver() {
         try {
+            // one per context, so that a solver is interrupted alone
+            final ShutdownManager interrupter = ShutdownManager.create();
             final SolverContext context =
                     SolverContextFactory.createSolverContext(
-                            config, logger, shutdownManager.getNotifier(), solver);
+                            config, logger, interrupter.getNotifier(), solver);
             final JavaSMTSymbolTable symbolTable = new JavaSMTSymbolTable();
             final JavaSMTTransformationManager transformationManager =
                     new JavaSMTTransformationManager(symbolTable, context);
@@ -173,22 +196,42 @@ public final class JavaSMTSolverFactory implements SolverFactory {
                     new JavaSMTTermTransformer(symbolTable, context);
 
             final ProverEnvironment prover =
-                    context.newProverEnvironment(
-                            ProverOptions.GENERATE_MODELS, ProverOptions.GENERATE_UNSAT_CORE);
+                    newProver(
+                            context,
+                            ProverOptions.GENERATE_MODELS,
+                            ProverOptions.GENERATE_UNSAT_CORE);
 
             return new JavaSMTSolver(
-                    symbolTable, transformationManager, termTransformer, context, prover);
+                    symbolTable,
+                    transformationManager,
+                    termTransformer,
+                    context,
+                    prover,
+                    interrupter);
         } catch (InvalidConfigurationException e) {
             throw new JavaSMTSolverException(e);
         }
     }
 
+    private ProverEnvironment newProver(SolverContext context, ProverOptions... options) {
+        // Loading the Yices prover class loads the Yices native library, which some platforms lack.
+        if (solver == Solvers.YICES2) {
+            final ProverEnvironment yices = PushPopYices2Prover.create(context, Set.of(options));
+            if (yices != null) {
+                return yices;
+            }
+        }
+        return context.newProverEnvironment(options);
+    }
+
     @Override
     public ItpSolver createItpSolver() {
         try {
+            // one per context, so that a solver is interrupted alone
+            final ShutdownManager interrupter = ShutdownManager.create();
             final SolverContext context =
                     SolverContextFactory.createSolverContext(
-                            config, logger, shutdownManager.getNotifier(), solver);
+                            itpConfig, logger, interrupter.getNotifier(), solver);
             final JavaSMTSymbolTable symbolTable = new JavaSMTSymbolTable();
             final JavaSMTTransformationManager transformationManager =
                     new JavaSMTTransformationManager(symbolTable, context);
@@ -199,7 +242,12 @@ public final class JavaSMTSolverFactory implements SolverFactory {
                     context.newProverEnvironmentWithInterpolation(ProverOptions.GENERATE_MODELS);
 
             return new JavaSMTItpSolver(
-                    symbolTable, transformationManager, termTransformer, context, prover);
+                    symbolTable,
+                    transformationManager,
+                    termTransformer,
+                    context,
+                    prover,
+                    interrupter);
         } catch (InvalidConfigurationException e) {
             throw new JavaSMTSolverException(e);
         }

@@ -57,6 +57,7 @@ class XcfaCliWitnessLocationTest {
         Arguments.of("overflow-call-in-statement.c", "no-overflow"),
         Arguments.of("overflow-assert-argument.c", "no-overflow"),
         Arguments.of("deref-if-guard.c", "valid-memsafety"),
+        Arguments.of("deref-memcpy.c", "valid-memsafety"),
       )
 
     @JvmStatic
@@ -94,6 +95,12 @@ class XcfaCliWitnessLocationTest {
     assertEquals(line, targets[0].location.line)
     assertEquals(column, targets[0].location.column) {
       "The target must point at '$code' on line $line of $file"
+    }
+    // a validator would have to reach the target statement once per waypoint at its location
+    val beforeTarget =
+      witness.waypoints().zipWithNext().firstOrNull { it.second == targets[0] }?.first
+    assertTrue(beforeTarget?.location != targets[0].location) {
+      "$beforeTarget repeats the target location"
     }
 
     val validation =
@@ -186,6 +193,34 @@ class XcfaCliWitnessLocationTest {
         "function_enter must point at the closing parenthesis of: $source"
       }
     }
+  }
+
+  /** The trace of a NaN counterexample is feasible, so the nondet result keeps its waypoint. */
+  @Test
+  fun testNanFunctionReturn() {
+    val input = File(javaClass.getResource("/c/witness-target/nan-return.c")!!.path)
+    val temp = createTempDirectory()
+    val output =
+      runCatchingOutput(
+        arrayOf(
+          "--input-type",
+          "C",
+          "--input",
+          input.path,
+          "--stacktrace",
+          "--output-directory",
+          temp.absolutePathString(),
+          "--svcomp",
+          "--backend",
+          "BOUNDED",
+        )
+      )
+    assertTrue(output.getVerdict().contains("Unsafe")) {
+      "Expected Unsafe, got ${output.getVerdict()}"
+    }
+
+    val returns = temp.getWitness().waypoints().filter { it.type == WaypointType.FUNCTION_RETURN }
+    assertEquals(listOf("\\result != \\result"), returns.map { it.constraint?.value })
   }
 
   private fun targetParams(input: File, property: String): Array<String> =

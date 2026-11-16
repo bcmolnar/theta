@@ -54,6 +54,7 @@ import hu.bme.mit.theta.core.type.inttype.*;
 import hu.bme.mit.theta.core.type.rattype.*;
 import hu.bme.mit.theta.core.utils.BvUtils;
 import hu.bme.mit.theta.core.utils.ExprUtils;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
@@ -67,6 +68,13 @@ final class Z3ExprTransformer {
     private final Context context;
 
     private final Cache<Expr<?>, com.microsoft.z3.Expr> exprToTerm;
+
+    // unbounded while one expression is transformed: evicting a shared subterm of a DAG
+    // mid-traversal would transform it again at each occurrence
+    private Map<Expr<?>, com.microsoft.z3.Expr> transforming = new IdentityHashMap<>();
+    private int transformDepth = 0;
+    // a bound variable has a different term in each scope
+    private int quantifierScopes = 0;
     private final DispatchTable<com.microsoft.z3.Expr> table;
     private final Env env;
 
@@ -133,6 +141,7 @@ final class Z3ExprTransformer {
                         .addCase(IntLeqExpr.class, this::transformIntLeq)
                         .addCase(IntLtExpr.class, this::transformIntLt)
                         .addCase(IntToRatExpr.class, this::transformIntToRat)
+                        .addCase(IntToBvExpr.class, this::transformIntToBv)
 
                         // Bitvectors
 
@@ -194,9 +203,11 @@ final class Z3ExprTransformer {
                         .addCase(FpMaxExpr.class, this::transformFpMax)
                         .addCase(FpMinExpr.class, this::transformFpMin)
                         .addCase(FpSqrtExpr.class, this::transformFpSqrt)
+                        .addCase(FpMathFuncExpr.class, this::transformFpMathFunc)
                         .addCase(FpRemExpr.class, this::transformFpRem)
                         .addCase(FpIsNanExpr.class, this::transformFpIsNan)
                         .addCase(FpIsInfiniteExpr.class, this::transformFpIsInfinite)
+                        .addCase(FpIsZeroExpr.class, this::transformFpIsZero)
                         .addCase(FpFromBvExpr.class, this::transformFpFromBv)
                         .addCase(FpToBvExpr.class, this::transformFpToBv)
                         .addCase(FpFromIeeeBvExpr.class, this::transformFpFromIeeeBv)
@@ -235,10 +246,24 @@ final class Z3ExprTransformer {
      */
 
     public com.microsoft.z3.Expr toTerm(final Expr<?> expr) {
+        final com.microsoft.z3.Expr known = quantifierScopes == 0 ? transforming.get(expr) : null;
+        if (known != null) {
+            return known;
+        }
+        transformDepth++;
         try {
-            return exprToTerm.get(expr, () -> table.dispatch(expr));
+            final com.microsoft.z3.Expr term = exprToTerm.get(expr, () -> table.dispatch(expr));
+            if (quantifierScopes == 0) {
+                transforming.put(expr, term);
+            }
+            return term;
         } catch (final ExecutionException e) {
             throw new AssertionError("Unhandled case: " + expr, e);
+        } finally {
+            if (--transformDepth == 0 && !transforming.isEmpty()) {
+                // clearing would walk the whole table of the largest expression so far
+                transforming = new IdentityHashMap<>();
+            }
         }
     }
 
@@ -313,19 +338,23 @@ final class Z3ExprTransformer {
 
     private com.microsoft.z3.Expr transformExists(final ExistsExpr expr) {
         env.push();
+        quantifierScopes++;
         final com.microsoft.z3.Expr[] paramTerms = transformParamDecls(expr.getParamDecls());
         final BoolExpr opTerm = (BoolExpr) toTerm(expr.getOp());
         final BoolExpr result = context.mkExists(paramTerms, opTerm, 1, null, null, null, null);
         env.pop();
+        quantifierScopes--;
         return result;
     }
 
     private com.microsoft.z3.Expr transformForall(final ForallExpr expr) {
         env.push();
+        quantifierScopes++;
         final com.microsoft.z3.Expr[] paramTerms = transformParamDecls(expr.getParamDecls());
         final BoolExpr opTerm = (BoolExpr) toTerm(expr.getOp());
         final BoolExpr result = context.mkForall(paramTerms, opTerm, 1, null, null, null, null);
         env.pop();
+        quantifierScopes--;
         return result;
     }
 
@@ -567,6 +596,11 @@ final class Z3ExprTransformer {
     private com.microsoft.z3.Expr transformIntToRat(final IntToRatExpr expr) {
         final com.microsoft.z3.IntExpr opTerm = (com.microsoft.z3.IntExpr) toTerm(expr.getOp());
         return context.mkInt2Real(opTerm);
+    }
+
+    private com.microsoft.z3.Expr transformIntToBv(final IntToBvExpr expr) {
+        final com.microsoft.z3.IntExpr opTerm = (com.microsoft.z3.IntExpr) toTerm(expr.getOp());
+        return context.mkInt2BV(expr.getSize(), opTerm);
     }
 
     private com.microsoft.z3.Expr transformBvLit(final BvLitExpr expr) {
@@ -860,9 +894,23 @@ final class Z3ExprTransformer {
         return context.mkFPIsInfinite(opTerm);
     }
 
+    private com.microsoft.z3.Expr transformFpIsZero(final FpIsZeroExpr expr) {
+        final FPExpr opTerm = (FPExpr) toTerm(expr.getOp());
+        return context.mkFPIsZero(opTerm);
+    }
+
     private com.microsoft.z3.Expr transformFpSqrt(final FpSqrtExpr expr) {
         final FPExpr opTerm = (FPExpr) toTerm(expr.getOp());
         return context.mkFPSqrt(transformFpRoundingMode(expr.getRoundingMode()), opTerm);
+    }
+
+    /** An uninterpreted function per function and sort, named after the operator label. */
+    private com.microsoft.z3.Expr transformFpMathFunc(final FpMathFuncExpr expr) {
+        final FPExpr opTerm = (FPExpr) toTerm(expr.getOp());
+        final Sort sort = transformer.toSort(expr.getType());
+        final FuncDecl<?> func =
+                context.mkFuncDecl(expr.getOperatorLabel(), new Sort[] {sort}, sort);
+        return context.mkApp(func, opTerm);
     }
 
     private com.microsoft.z3.Expr transformFpRoundToIntegral(final FpRoundToIntegralExpr expr) {
@@ -1134,5 +1182,6 @@ final class Z3ExprTransformer {
 
     public void reset() {
         exprToTerm.invalidateAll();
+        transforming.clear();
     }
 }

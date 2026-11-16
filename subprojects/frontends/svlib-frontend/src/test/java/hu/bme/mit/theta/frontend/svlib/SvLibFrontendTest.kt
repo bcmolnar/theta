@@ -1,0 +1,429 @@
+/*
+ *  Copyright 2026 Budapest University of Technology and Economics
+ *
+ *  Licensed under the Apache License, Version 2.0 (the "License");
+ *  you may not use this file except in compliance with the License.
+ *  You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
+ */
+
+package hu.bme.mit.theta.frontend.svlib
+
+import hu.bme.mit.theta.common.logging.ConsoleLogger
+import hu.bme.mit.theta.common.logging.Logger
+import hu.bme.mit.theta.core.decl.Decl
+import hu.bme.mit.theta.core.decl.VarDecl
+import hu.bme.mit.theta.core.stmt.AssumeStmt
+import hu.bme.mit.theta.core.stmt.HavocStmt
+import hu.bme.mit.theta.core.type.anytype.RefExpr
+import hu.bme.mit.theta.core.type.functype.FuncType
+import hu.bme.mit.theta.core.utils.ExprUtils
+import hu.bme.mit.theta.svlib.frontend.dsl.gen.SvLibLexer
+import hu.bme.mit.theta.svlib.frontend.dsl.gen.SvLibParser
+import hu.bme.mit.theta.xcfa.model.*
+import hu.bme.mit.theta.xcfa.passes.ProcedurePassManager
+import hu.bme.mit.theta.xcfa.utils.collectVars
+import hu.bme.mit.theta.xcfa.utils.getFlatLabels
+import java.io.FileInputStream
+import java.nio.file.Path
+import org.antlr.v4.runtime.CharStreams
+import org.antlr.v4.runtime.CommonTokenStream
+import org.junit.jupiter.api.Assertions.*
+import org.junit.jupiter.api.Test
+
+internal class SvLibFrontendTest {
+
+  @Test
+  fun testParsing() {
+    val source =
+      """
+        (define-proc foo
+          ((x Int))
+          ((y Int))
+          ((tmp Int))
+          (sequence)
+        )
+        
+        """
+        .trimIndent()
+
+    val parser = SvLibParser(CommonTokenStream(SvLibLexer(CharStreams.fromString(source))))
+    val tree = parser.script()
+    assertNotNull(tree)
+  }
+
+  @Test
+  fun safeIfVerificationExampleIsTranslatedToXCFA() {
+    val xcfa: XCFA = parseResource("if-simple-safe.svlib")
+    val procedure = xcfa.procedures.first()
+
+    assertTrue(procedure.locs.isNotEmpty())
+    assertTrue(procedure.finalLoc.isPresent)
+  }
+
+  @Test
+  fun safeIfVerificationExampleCreatesBranchingLocation() {
+    val xcfa: XCFA = parseResource("if-simple-safe.svlib")
+    val procedure = xcfa.procedures.first()
+
+    val branchingLocCount =
+      procedure.edges.groupBy(XcfaEdge::source).count { (_, edges) -> edges.size >= 2 }
+
+    assertTrue(
+      branchingLocCount >= 2,
+      "Expected if and check-true translations to create branching locations",
+    )
+  }
+
+  @Test
+  fun unsafeIfVerificationExampleCreatesErrorLocation() {
+    val xcfa: XCFA = parseResource("if-simple-unsafe.svlib")
+    val procedure = xcfa.procedures.first()
+
+    assertTrue(procedure.errorLoc.isPresent)
+    assertTrue(procedure.edges.any { it.target.error })
+  }
+
+  @Test
+  fun checkTrueCreatesNormalAndErrorBranches() {
+    val xcfa: XCFA = parseResource("check-true-middle.svlib")
+    val procedure = xcfa.procedures.first()
+
+    val checkLocation = procedure.edges.filter { it.target.error }.map(XcfaEdge::source).first()
+
+    assertEquals(2, procedure.edges.count { it.source == checkLocation })
+  }
+
+  @Test
+  fun annotateTagCheckTrueRewritesTaggedLocation() {
+    val xcfa: XCFA = parseResource("check-true-annotate-tag.svlib")
+    val procedure = xcfa.procedures.first()
+
+    val taggedLocation =
+      procedure.locs.find { loc ->
+        loc.metadata.let { metadata ->
+          metadata is SvLibTagMetadata && metadata.tags.contains("xto0")
+        }
+      }
+
+    assertNotNull(taggedLocation)
+    assertEquals(2, taggedLocation!!.outgoingEdges.size)
+    assertTrue(taggedLocation.outgoingEdges.any { it.target.error })
+    assertEquals("tagCheckExample", (taggedLocation.metadata as SvLibTagMetadata).procedure)
+  }
+
+  @Test
+  fun multiAssignStatementSemantics() {
+    val xcfa: XCFA = parseResource("multi-assign.svlib")
+    val procedure = xcfa.procedures.first()
+
+    val vars = xcfa.collectVars()
+    assertTrue(vars.any { it.name.contains("__theta") })
+
+    val sequenceLabels =
+      procedure.edges
+        .filter { it.source != procedure.initLoc }
+        .map(XcfaEdge::label)
+        .filterIsInstance<SequenceLabel>()
+    assertEquals(2, sequenceLabels.size)
+
+    val initAssign = sequenceLabels[0]
+    val incrementAssign = sequenceLabels[1]
+
+    assertEquals(2, initAssign.labels.size)
+    assertEquals(4, incrementAssign.labels.size)
+  }
+
+  @Test
+  fun havocStatementCreatesHavocLabel() {
+    val xcfa: XCFA = parseResource("havoc.svlib")
+    val procedure = xcfa.procedures.first()
+
+    assertTrue(
+      procedure.edges
+        .filter { it.source != procedure.initLoc }
+        .flatMap(XcfaEdge::getFlatLabels)
+        .filterIsInstance<StmtLabel>()
+        .any { it.stmt is HavocStmt<*> }
+    )
+  }
+
+  @Test
+  fun havocStatementStartsWithWitnessMarker() {
+    val xcfa: XCFA = parseResource("havoc.svlib")
+    val procedure = xcfa.procedures.first()
+
+    val havocEdge =
+      procedure.edges.single { edge ->
+        edge.getFlatLabels().any {
+          (it.metadata as? SvLibWitnessMetadata) is SvLibWitnessMetadata.Havoc
+        }
+      }
+    val labels = havocEdge.getFlatLabels()
+    assertTrue(labels.first().isWitnessStep())
+    assertTrue(labels.all { it.metadata === labels.first().metadata })
+    assertTrue(labels.drop(1).all { (it as StmtLabel).stmt is HavocStmt<*> })
+  }
+
+  @Test
+  fun procedureBodyStartsWithWitnessMarker() {
+    val xcfa: XCFA = parseResource("procedure-call.svlib")
+    val entry = xcfa.initProcedures.single().first
+    val initializable = mapOf("add" to setOf("sum"), "callExample" to setOf("x", "y"))
+
+    (xcfa.procedures - entry).forEach { procedure ->
+      val labels = procedure.initLoc.outgoingEdges.single().getFlatLabels()
+      assertTrue(labels.first().isWitnessStep())
+      assertTrue(labels.all { it.metadata === labels.first().metadata })
+      val metadata = labels.first().metadata as SvLibWitnessMetadata.InitProcVars
+      assertEquals(procedure.name, metadata.procedure)
+      assertEquals(initializable[procedure.name], metadata.initVars.map { it.name }.toSet())
+    }
+  }
+
+  @Test
+  fun procedureEntryHavocsVarsReadBeforeAssignment() {
+    val xcfa: XCFA = parseResource("uninitialized-read.svlib")
+
+    val entryHavocs =
+      xcfa.procedures
+        .single { it.name == "uninitializedRead" }
+        .initLoc
+        .outgoingEdges
+        .single()
+        .getFlatLabels()
+        .mapNotNull { ((it as? StmtLabel)?.stmt as? HavocStmt<*>)?.varDecl?.name }
+        .toSet()
+
+    assertEquals(setOf("x", "r"), entryHavocs)
+  }
+
+  @Test
+  fun taggedLocationKnowsItsLiveVars() {
+    val xcfa: XCFA = parseResource("procedure-call.svlib")
+
+    val metadata =
+      xcfa.procedures
+        .flatMap { it.locs }
+        .map { it.metadata }
+        .filterIsInstance<SvLibTagMetadata>()
+        .single { "check-after-increment" in it.tags }
+    assertEquals(setOf("x"), metadata.liveVars.map { it.name }.toSet())
+  }
+
+  @Test
+  fun procedureExitKnowsTheTagsAnnotatingOnlyWholeBodies() {
+    val xcfa: XCFA = parseResource("procedure-contracts.svlib")
+
+    val exits =
+      xcfa.procedures
+        .mapNotNull { it.finalLoc.get().metadata as? SvLibProcedureExit }
+        .associateBy { it.procedure }
+    assertEquals(setOf("inc-body", "inc-alias"), exits["inc"]?.tags)
+    assertEquals(setOf("twice-body", "twice-outer"), exits["twice"]?.tags)
+    assertEquals(emptySet<String>(), exits["other"]?.tags)
+    assertEquals(setOf("x"), exits["twice"]?.inputs?.map { it.name }?.toSet())
+    assertEquals(setOf("y"), exits["twice"]?.outputs?.map { it.name }?.toSet())
+  }
+
+  @Test
+  fun verifyCallBindsInputsInEntryWrapper() {
+    val xcfa: XCFA = parseResource("procedure-call.svlib")
+
+    val call =
+      xcfa.initProcedures
+        .single()
+        .first
+        .edges
+        .flatMap { it.getFlatLabels() }
+        .filterIsInstance<InvokeLabel>()
+        .single()
+    assertEquals("callExample", call.name)
+    assertEquals("input", (call.params.first() as RefExpr<*>).decl.name)
+  }
+
+  @Test
+  fun entryWrapperAssumesAssertionsBeforeTheCall() {
+    val xcfa: XCFA = parseResource("model-symbols.svlib")
+
+    val labels = xcfa.initProcedures.single().first.edges.single().getFlatLabels()
+    val assumption = (labels.first() as StmtLabel).stmt as AssumeStmt
+    assertEquals(setOf("c"), ExprUtils.getVars(assumption.cond).map { it.name }.toSet())
+    assertTrue(labels.last() is InvokeLabel)
+  }
+
+  @Test
+  fun modelSymbolsAreRecordedInDeclarationOrder() {
+    val metadata = mutableMapOf<Pair<Any, String>, Any>()
+    parseResource("model-symbols.svlib") { owner, key, value -> metadata[owner to key] = value }
+
+    val symbols = metadata[MODEL_SYMBOLS to "modelSymbols"] as List<Decl<*>>
+    assertEquals(listOf("f", "c", "input"), symbols.map { it.name })
+    assertTrue(symbols.first().type is FuncType<*, *>)
+    assertTrue(symbols.drop(1).all { it is VarDecl<*> })
+  }
+
+  @Test
+  fun inlineCheckTrueIsAttributedToItsTag() {
+    val xcfa: XCFA = parseResource("check-true-middle.svlib")
+    val procedure = xcfa.procedures.first()
+
+    val metadata = procedure.edges.single { it.target.error }.label.metadata as SvLibWitnessMetadata
+    assertEquals(
+      SvLibWitnessMetadata.Annotation(":check-true (<= 0 x)", "check-before-first-increment"),
+      metadata,
+    )
+  }
+
+  @Test
+  fun returnStatementCreatesFinalLocationEdge() {
+    val xcfa: XCFA = parseResource("return.svlib")
+    val procedure = xcfa.procedures.first()
+    val finalLoc = procedure.finalLoc.orElseThrow()
+
+    assertTrue(procedure.edges.any { edge -> edge.target == finalLoc })
+  }
+
+  @Test
+  fun gotoLabeledLocations() {
+    val xcfa: XCFA = parseResource("goto.svlib")
+    val procedure = xcfa.procedures.first()
+
+    val loopHead =
+      procedure.locs.find { it.incomingEdges.size == 2 && it.outgoingEdges.size == 2 } ?: fail()
+    assertTrue(loopHead.outgoingEdges.any { it.target == procedure.errorLoc.get() })
+
+    var cycleFound = false
+    val visited = mutableListOf(loopHead)
+    var i = 0
+    while (i < visited.size) {
+      val next = visited[i].outgoingEdges.map(XcfaEdge::target)
+      if (next.intersect(visited).isNotEmpty()) {
+        cycleFound = true
+        break
+      }
+      visited.addAll(next)
+      ++i
+    }
+    assertTrue(cycleFound)
+  }
+
+  @Test
+  fun choiceCreatesBranching() {
+    val xcfa: XCFA = parseResource("choice.svlib")
+    val procedure = xcfa.procedures.first()
+
+    assertTrue(procedure.locs.any { it.outgoingEdges.size == 3 })
+  }
+
+  @Test
+  fun choiceBranchesStartWithWitnessMarkers() {
+    val xcfa: XCFA = parseResource("choice.svlib")
+    val procedure = xcfa.procedures.first()
+
+    val branches = procedure.locs.single { it.outgoingEdges.size == 3 }.outgoingEdges
+    assertTrue(branches.all { it.label.isWitnessStep() })
+    assertEquals(
+      (0..2).map { SvLibWitnessMetadata.Choice(it) }.toSet(),
+      branches.map { (it.label.metadata as SvLibWitnessMetadata) }.toSet(),
+    )
+  }
+
+  @Test
+  fun multipleProceduresCreated() {
+    val xcfa: XCFA = parseResource("procedure-call.svlib")
+    assertEquals(3, xcfa.procedures.size)
+
+    val procedure = xcfa.procedures.single { it.name == "callExample" }
+    val calledProcedure = xcfa.procedures.first()
+    val calls = procedure.edges.map(XcfaEdge::label).filterIsInstance<InvokeLabel>()
+    assertEquals(1, calls.size)
+    assertEquals(calledProcedure.name, calls.first().name)
+  }
+
+  @Test
+  fun ifWithReturningBranchContinuesOnlyFromOtherBranch() {
+    val xcfa: XCFA = parseResource("return-if.svlib")
+    val procedure = xcfa.procedures.first()
+    val finalLoc = procedure.finalLoc.orElseThrow()
+
+    assertEquals(2, procedure.edges.count { it.target == finalLoc })
+  }
+
+  @Test
+  fun whileBodyReturnDoesNotCreateBackEdge() {
+    val xcfa: XCFA = parseResource("return-while.svlib")
+    val procedure = xcfa.procedures.first()
+    val finalLoc = procedure.finalLoc.orElseThrow()
+
+    assertEquals(2, procedure.edges.count { it.target == finalLoc })
+    assertTrue(
+      procedure.locs.any { loc ->
+        loc.incomingEdges.size >= 2 &&
+          loc.outgoingEdges.any { it.label.toString().contains("(< x 3)") }
+      }
+    )
+    assertTrue(
+      procedure.edges
+        .filter { it.target == finalLoc && it.label.toString().contains("Nop") }
+        .map(XcfaEdge::source)
+        .any { it.outgoingEdges.size == 1 }
+    )
+  }
+
+  @Test
+  fun whileLoopCreatesLoopHeadAndBackEdge() {
+    val xcfa: XCFA = parseResource("loop-simple-safe.svlib")
+    val procedure = xcfa.procedures.first()
+
+    val incomingCounts =
+      procedure.edges.groupBy(XcfaEdge::target).mapValues { (_, edges) -> edges.size }
+    val outgoingCounts =
+      procedure.edges.groupBy(XcfaEdge::source).mapValues { (_, edges) -> edges.size }
+
+    assertTrue(
+      procedure.locs.any { loc ->
+        (incomingCounts[loc] ?: 0) >= 2 && (outgoingCounts[loc] ?: 0) >= 2
+      }
+    )
+  }
+
+  @Test
+  fun loopHeadAttributeBeforeCondition() {
+    val xcfa: XCFA = parseResource("annotated-loop-head.svlib")
+    val procedure = xcfa.procedures.first()
+
+    val loopHeads =
+      procedure.locs.filter { it.incomingEdges.size == 2 && it.outgoingEdges.size == 2 }
+    assertEquals(2, loopHeads.size)
+
+    loopHeads.forEach { loopHead ->
+      assertTrue(loopHead.outgoingEdges.any { it.target == procedure.errorLoc.get() })
+    }
+  }
+
+  private fun parseResource(
+    name: String,
+    recordMetadata: (Any, String, Any) -> Unit = { _, _, _ -> },
+  ) =
+    try {
+      val resource = SvLibFrontendTest::class.java.getClassLoader().getResource(name)
+      val file = Path.of(resource!!.toURI()).toFile()
+      SvLibFrontend()
+        .buildXcfa(
+          FileInputStream(file),
+          recordMetadata,
+          ConsoleLogger(Logger.Level.INFO),
+          ProcedurePassManager(),
+        )
+    } catch (e: Exception) {
+      throw RuntimeException("Failed to parse test resource: $name", e)
+    }
+}
