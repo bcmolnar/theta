@@ -115,7 +115,7 @@ object Deps {
     val kaml = "com.charleskorn.kaml:kaml:${Versions.kaml}"
 
     val kotlinxSerializationJson =
-        "org.jetbrains.kotlinx:kotlinx-serialization-json:${Versions.kotlinxSerializationJson}"
+        "org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0"
 
     val nuprocess = "com.zaxxer:nuprocess:${Versions.nuprocess}"
 

@@ -172,6 +172,8 @@ class CPasses(property: XcfaProperty, parseContext: ParseContext, uniqueWarningL
       ),
       EliminateSelfLoops(),
     ),
+    // snapshot expression/variable counts before StaticCoi removes labels
+    listOf(RemovedExprsLogPass(uniqueWarningLogger)),
     listOf(StaticCoiPass(property)),
     // ahead of the memsafety and overflow guards, so the accesses it spells out are checked, and
     // after the passes that rebuild expressions, which would lose its one-guard-per-region marks
@@ -216,6 +218,8 @@ class CPasses(property: XcfaProperty, parseContext: ParseContext, uniqueWarningL
       EmptyEdgeRemovalPass(),
       UnusedLocRemovalPass(),
     ),
+    // log removed expressions/vars after the cleanup that actually removes expressions/vars
+    listOf(RemovedExprsLogPass(uniqueWarningLogger)),
     // on the finished XCFA, as the portfolio applies it: the mem* calls are spelled out and every
     // other unresolved call is havoced by now, so their accesses are instrumented too
     listOf(DataRaceToReachabilityPass(property, parseContext)),

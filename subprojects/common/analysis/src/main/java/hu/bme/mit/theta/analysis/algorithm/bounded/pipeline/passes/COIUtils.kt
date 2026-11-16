@@ -29,12 +29,13 @@ import java.util.concurrent.TimeUnit
 class COIUtils{
   companion object{
     fun finalLog(varRemoved: Int, allVars: Int, removedExpr: Int, allExpr: Int, startDeps: Long, endDeps: Long, sw: Stopwatch, logger: Logger){
-      logger.writeln(Logger.Level.RESULT, "Finished COI - time(ms):${sw.elapsed(TimeUnit.MILLISECONDS)}")
-      logger.writeln(Logger.Level.RESULT, "COI Pass - Removed Vars: $varRemoved")
-      logger.writeln(Logger.Level.RESULT, "COI Pass - All Vars: $allVars")
-      logger.writeln(Logger.Level.RESULT, "COI Pass - Removed Expr: $removedExpr")
-      logger.writeln(Logger.Level.RESULT, "COI Pass - All Expr: $allExpr")
-      logger.writeln(Logger.Level.RESULT, "COI Pass - Graph Search(ms): ${endDeps - startDeps}")
+      logger.writeln(Logger.Level.RESULT, "----------------")
+      logger.writeln(Logger.Level.RESULT, "Finished Monolithic COI - time(ms):${sw.elapsed(TimeUnit.MILLISECONDS)}")
+      logger.writeln(Logger.Level.RESULT, "Monolithic COI Pass - Removed Vars: $varRemoved")
+      logger.writeln(Logger.Level.RESULT, "Monolithic COI Pass - All Vars: $allVars")
+      logger.writeln(Logger.Level.RESULT, "Monolithic COI Pass - Removed Expr: $removedExpr")
+      logger.writeln(Logger.Level.RESULT, "Monolithic COI Pass - All Expr: $allExpr")
+      logger.writeln(Logger.Level.RESULT, "Monolithic COI Pass - Graph Search(ms): ${endDeps - startDeps}")
       logger.writeln(Logger.Level.RESULT, "----------------")
     }
 
