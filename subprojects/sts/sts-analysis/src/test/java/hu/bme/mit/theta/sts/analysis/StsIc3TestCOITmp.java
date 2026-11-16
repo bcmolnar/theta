@@ -121,6 +121,7 @@ public class StsIc3TestCOITmp {
                             new MonolithicExprPassResult<>(
                                 hu.bme.mit.theta.analysis.algorithm.coi.MonolithicCOI.proc(
                                     Objects.requireNonNull(data.getExpressionResult()))),*/
+
                             new ConeOfInfluenceMEPass<>(logger)
                         ),
                         List.of(),

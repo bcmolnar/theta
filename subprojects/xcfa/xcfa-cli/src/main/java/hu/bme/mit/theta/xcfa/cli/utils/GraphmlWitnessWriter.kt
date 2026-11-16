@@ -27,7 +27,6 @@ import hu.bme.mit.theta.solver.SolverFactory
 import hu.bme.mit.theta.xcfa.XcfaProperty
 import hu.bme.mit.theta.xcfa.analysis.XcfaAction
 import hu.bme.mit.theta.xcfa.analysis.XcfaState
-import hu.bme.mit.theta.xcfa.analysis.wrapExprTraceCheckerWithDataRaceCondition
 import hu.bme.mit.theta.xcfa.cli.witnesstransformation.XcfaTraceConcretizer
 import hu.bme.mit.theta.xcfa.cli.witnesstransformation.targetToWitness
 import hu.bme.mit.theta.xcfa.cli.witnesstransformation.traceToWitness
@@ -218,12 +217,14 @@ class GraphmlWitnessWriter : XcfaWitnessWriter {
     if (safetyResult.isUnsafe && safetyResult.asUnsafe().cex is Trace<*, *>) {
       try {
         val concrTrace: Trace<XcfaState<ExplState>, XcfaAction> =
-          XcfaTraceConcretizer.concretize(
-            safetyResult.asUnsafe().cex as Trace<XcfaState<PtrState<*>>, XcfaAction>?,
-            cexSolverFactory,
-            parseContext,
-            wrapExprTraceCheckerWithDataRaceCondition(property, parseContext),
-          )
+          XcfaTraceConcretizer()
+            .concretize(
+              safetyResult.asUnsafe().cex as Trace<XcfaState<PtrState<*>>, XcfaAction>?,
+              cexSolverFactory,
+              parseContext,
+              property,
+              logger,
+            )
 
         val witnessTrace =
           traceToWitness(trace = concrTrace, parseContext = parseContext, property = property)

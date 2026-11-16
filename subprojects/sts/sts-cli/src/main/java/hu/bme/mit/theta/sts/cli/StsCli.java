@@ -358,8 +358,8 @@ public class StsCli {
                                             solverFactory)));
                 }
                 if(!coi_params.isEmpty()){
-                    passes.add(new ConeOfInfluenceMEPass<>(logger));
 
+                    passes.add(new ConeOfInfluenceMEPass<>(logger));
                 }
 
                 if (reversed) {
