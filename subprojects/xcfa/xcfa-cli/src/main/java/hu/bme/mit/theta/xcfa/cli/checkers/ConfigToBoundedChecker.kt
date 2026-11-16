@@ -20,6 +20,7 @@ import hu.bme.mit.theta.analysis.algorithm.SafetyChecker
 import hu.bme.mit.theta.analysis.algorithm.bounded.BoundedChecker
 import hu.bme.mit.theta.analysis.algorithm.bounded.MonolithicExpr
 import hu.bme.mit.theta.analysis.algorithm.bounded.pipeline.MonolithicExprPass
+import hu.bme.mit.theta.analysis.algorithm.bounded.pipeline.passes.ConeOfInfluenceMEPass
 import hu.bme.mit.theta.analysis.algorithm.bounded.pipeline.passes.L2SMEPass
 import hu.bme.mit.theta.analysis.algorithm.bounded.pipeline.passes.PredicateAbstractionMEPass
 import hu.bme.mit.theta.analysis.algorithm.bounded.pipeline.passes.ReverseMEPass
@@ -112,10 +113,16 @@ internal fun getPipelineChecker(
       )
     )
   }
+  if(config.frontendConfig.enableMonolithicCoi){
+    passes.add(ConeOfInfluenceMEPass(logger))
+  }
+  /*if(config.frontendConfig.enableStaticCoi){
+
+  }*/
+
   if (reversed) {
     passes.add(ReverseMEPass())
   }
-
   return XcfaPipelineChecker(
     xcfa,
     config.inputConfig.property,

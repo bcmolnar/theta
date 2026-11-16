@@ -132,6 +132,10 @@ data class FrontendConfig<T : SpecFrontendConfig>(
   var lbeLevel: LbePass.LbeLevel = LbePass.LbeLevel.LBE_SEQ,
   @Parameter(names = ["--static-coi"], description = "Enable static cone-of-influence")
   var enableStaticCoi: Boolean = false,
+
+  @Parameter(names = ["--monolithic-coi"], description = "Enable monolithic cone-of-influence")
+  var enableMonolithicCoi: Boolean = false,
+
   @Parameter(
     names = ["--ptr-size-in-memory"],
     description = "Store the memsafety sizes in memory instead of an SMT array (OC backend only)",
@@ -562,6 +566,7 @@ data class BoundedConfig(
     description = "One step per loop-free block instead of per edge (single-threaded reachability)",
   )
   var blockEncoding: Boolean = false,
+
   val bmcConfig: BMCConfig = BMCConfig(),
   val indConfig: InductionConfig = InductionConfig(),
   val itpConfig: InterpolationConfig = InterpolationConfig(),
